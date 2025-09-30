@@ -41,6 +41,10 @@ dependencies = [
     "deepspeed>=0.14.0",
     "librosa",
     "langid",
+    "onnx==1.19.0",
+    "onnx-ir==0.1.9",
+    "onnxruntime==1.23.0",
+    "onnxscript==0.5.2",
 ]
 keywords = [
     "speech-recognition",
