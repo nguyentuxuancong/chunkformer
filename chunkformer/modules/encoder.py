@@ -217,6 +217,7 @@ class ChunkFormerEncoder(torch.nn.Module):
         chunk_size: int = 0,
         left_context_size: int = 0,
         right_context_size: int = 0,
+        export: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Embed positions in tensor.
 
@@ -258,6 +259,7 @@ class ChunkFormerEncoder(torch.nn.Module):
             chunk_size=chunk_size,
             left_context_size=left_context_size,
             right_context_size=right_context_size,
+            export=export,
         )
         if self.normalize_before and self.final_norm:
             xs = self.after_norm(xs)
@@ -275,6 +277,7 @@ class ChunkFormerEncoder(torch.nn.Module):
         chunk_size: int = 0,
         left_context_size: int = 0,
         right_context_size: int = 0,
+        export: bool = False,
     ) -> torch.Tensor:
         for idx, layer in enumerate(self.encoders):
             xs, chunk_masks, _, _ = layer(
@@ -285,6 +288,7 @@ class ChunkFormerEncoder(torch.nn.Module):
                 chunk_size=chunk_size,
                 left_context_size=left_context_size,
                 right_context_size=right_context_size,
+                export=export,
             )
         return xs
 

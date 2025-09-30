@@ -70,6 +70,7 @@ class ChunkFormerEncoderLayer(nn.Module):
         chunk_size: int = 0,
         left_context_size: int = 0,
         right_context_size: int = 0,
+        export: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute encoded features.
 
@@ -118,6 +119,7 @@ class ChunkFormerEncoderLayer(nn.Module):
             chunk_size=chunk_size,
             left_context_size=left_context_size,
             right_context_size=right_context_size,
+            export=export,
         )
         x = residual + self.dropout(x_att)
         if not self.normalize_before:
@@ -131,7 +133,9 @@ class ChunkFormerEncoderLayer(nn.Module):
             if self.normalize_before:
                 x = self.norm_conv(x)
 
-            x, new_cnn_cache = self.conv_module(x, mask_pad, cnn_cache, chunk_size=chunk_size)
+            x, new_cnn_cache = self.conv_module(
+                x, mask_pad, cnn_cache, chunk_size=chunk_size, export=export
+            )
             x = residual + self.dropout(x)
 
             if not self.normalize_before:

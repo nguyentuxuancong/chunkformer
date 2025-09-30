@@ -20,6 +20,8 @@ from typing import Tuple, Union
 import torch
 from torch import nn
 
+from chunkformer.utils.common import unfold_with_loop
+
 
 class ChunkConvolutionModule(nn.Module):
     """ConvolutionModule in ChunkFormer model."""
@@ -104,6 +106,7 @@ class ChunkConvolutionModule(nn.Module):
         mask_pad: torch.Tensor = torch.ones((0, 0, 0), dtype=torch.bool),
         cache: torch.Tensor = torch.zeros((0, 0, 0)),
         chunk_size: int = 0,
+        export: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute convolution module.
         Args:
@@ -157,7 +160,10 @@ class ChunkConvolutionModule(nn.Module):
 
             n_chunks = ((x.size(2) - size) // step) + 1
             # [B, C, n_chunks, size]
-            x = x.unfold(-1, size=size, step=step)
+            if export:
+                x = unfold_with_loop(x, -1, size=size, step=step)
+            else:
+                x = x.unfold(-1, size=size, step=step)
             # [B, n_chunks, C, size]
             x = x.transpose(1, 2)
             # [B * n_chunks, C, size]

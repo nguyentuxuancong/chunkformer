@@ -16,12 +16,46 @@
 
 import math
 import time
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
 
 IGNORE_ID = -1
+
+
+def unfold_with_loop(x: torch.Tensor, dimension: int, size: int, step: int) -> torch.Tensor:
+    """
+    Replicates the functionality of torch.Tensor.unfold using slicing and a for-loop.
+
+    Args:
+        x: The input tensor to unfold (e.g., shape (B, H, L, D)).
+        dimension: The dimension along which to unfold (e.g., 2 for L).
+        size: The size of the sliding window (W).
+        step: The step between adjacent windows (S).
+
+    Returns:
+        The unfolded tensor. If original shape was (..., L, ...), the new shape
+        will be (..., num_windows, size, ...).
+    """
+    dimension = dimension if dimension >= 0 else dimension + x.ndim
+    permute_lst = list(range(len(x.shape))) + [dimension]
+    permute_lst.pop(dimension)
+    x = x.permute(permute_lst)
+
+    if step <= 0 or size <= 0:
+        raise ValueError("Size and step must be positive integers.")
+
+    unfolded_chunks: List[torch.Tensor] = []
+    for start_index in range(0, x.size(-1) - size + 1, step):
+        end_index = start_index + size
+        slices: List[Union[slice, int]] = [slice(None)] * x.ndim
+        slices[-1] = slice(start_index, end_index)
+        chunk = x[slices]
+        unfolded_chunks.append(chunk)
+
+    unfolded_tensor = torch.stack(unfolded_chunks, dim=dimension)
+    return unfolded_tensor
 
 
 def pad_list(xs: List[torch.Tensor], pad_value: int):

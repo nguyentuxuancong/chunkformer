@@ -6,6 +6,8 @@ from typing import Optional, Tuple
 import torch
 from torch import nn
 
+from chunkformer.utils.common import unfold_with_loop
+
 
 class MultiHeadedAttention(nn.Module):
     """Multi-Head Attention layer.
@@ -265,6 +267,20 @@ class ChunkAttentionWithRelativeRightContext(MultiHeadedAttention):
             storage_offset=n_stride * (time1 - 1),
         )
 
+    def rel_shift_export(self, x, left_context_size: int = 0, right_context_size: int = 0):
+        (batch_size, num_heads, time1, n) = x.size()
+        time2 = time1 + left_context_size + right_context_size
+
+        rows = torch.arange(start=time1 - 1, end=-1, step=-1)
+        cols = torch.arange(time2)
+        rows = rows.repeat(batch_size * num_heads).unsqueeze(-1)
+        indexes = rows + cols
+
+        x = x.reshape(-1, n)
+        x = torch.gather(x, dim=1, index=indexes.to(x.device))
+        x = x.reshape(batch_size, num_heads, time1, time2)
+        return x
+
     def forward(
         self,
         query: torch.Tensor,
@@ -276,6 +292,7 @@ class ChunkAttentionWithRelativeRightContext(MultiHeadedAttention):
         chunk_size: int = 0,
         left_context_size: int = 0,
         right_context_size: int = 0,
+        export: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute 'Scaled Dot Product Attention' with rel. positional encoding.
         Args:
@@ -337,7 +354,10 @@ class ChunkAttentionWithRelativeRightContext(MultiHeadedAttention):
             n_frames_pad = n_frames_pad % chunk_size
             q = torch.nn.functional.pad(q, (0, 0, 0, 0, 0, n_frames_pad))
             # [B, n_chunks, head, d_k, q_size]
-            q = q.unfold(1, size=chunk_size, step=chunk_size)
+            if export:
+                q = unfold_with_loop(q, 1, chunk_size, chunk_size)
+            else:
+                q = q.unfold(1, size=chunk_size, step=chunk_size)
             # [B * n_chunks, head, d_k, q_size]
             q = q.reshape(-1, q.size(2), q.size(3), q.size(4))
             # [B * n_chunks,q_size, head, d_k]
@@ -350,9 +370,14 @@ class ChunkAttentionWithRelativeRightContext(MultiHeadedAttention):
                 kv, (0, 0, left_context_size, n_frames_pad + right_context_size)
             )
             # [B, head, n_chunks, d_k * 2, l + c + r]
-            kv = kv.unfold(
-                2, size=left_context_size + chunk_size + right_context_size, step=chunk_size
-            )
+            if export:
+                kv = unfold_with_loop(
+                    kv, 2, left_context_size + chunk_size + right_context_size, chunk_size
+                )
+            else:
+                kv = kv.unfold(
+                    2, size=left_context_size + chunk_size + right_context_size, step=chunk_size
+                )
             # [B, n_chunks, head, l + c + r, d_k * 2]
             kv = kv.permute(0, 2, 1, 4, 3)
             # [B * n_chunks, head, l + c + r, d_k * 2]
@@ -363,7 +388,10 @@ class ChunkAttentionWithRelativeRightContext(MultiHeadedAttention):
             # [B, 1, T + n_frames_pad]
             mask_q = torch.nn.functional.pad(mask, (0, n_frames_pad))
             # [B, 1, n_chunks, chunk_size]
-            mask_q = mask_q.unfold(-1, size=chunk_size, step=chunk_size)
+            if export:
+                mask_q = unfold_with_loop(mask_q, -1, chunk_size, chunk_size)
+            else:
+                mask_q = mask_q.unfold(-1, size=chunk_size, step=chunk_size)
             # [B *n_chunks, chunk_size]
             mask_q = mask_q.reshape(-1, mask_q.size(-1))
 
@@ -372,9 +400,14 @@ class ChunkAttentionWithRelativeRightContext(MultiHeadedAttention):
                 mask, (left_context_size, n_frames_pad + right_context_size)
             )
             # [B, 1, n_chunks, chunk_size]
-            mask_kv = mask_kv.unfold(
-                -1, size=left_context_size + chunk_size + right_context_size, step=chunk_size
-            )
+            if export:
+                mask_kv = unfold_with_loop(
+                    mask_kv, -1, left_context_size + chunk_size + right_context_size, chunk_size
+                )
+            else:
+                mask_kv = mask_kv.unfold(
+                    -1, size=left_context_size + chunk_size + right_context_size, step=chunk_size
+                )
             # [B, * n_chunks, chunk_size]
             mask_kv = mask_kv.reshape(-1, mask_kv.size(3))
 
@@ -405,7 +438,10 @@ class ChunkAttentionWithRelativeRightContext(MultiHeadedAttention):
         # (batch, head, time1, time2)
         matrix_bd = torch.matmul(q_with_bias_v, p.transpose(-2, -1))
         # Add relative shift with left and right context inclusion, it can stream
-        matrix_bd = self.rel_shift(matrix_bd, left_context_size, right_context_size)
+        if export:
+            matrix_bd = self.rel_shift_export(matrix_bd, left_context_size, right_context_size)
+        else:
+            matrix_bd = self.rel_shift(matrix_bd, left_context_size, right_context_size)
 
         scores = (matrix_ac + matrix_bd) / math.sqrt(self.d_k)  # (batch, head, time1, time2)
 
