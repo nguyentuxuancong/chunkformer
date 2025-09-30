@@ -42,6 +42,10 @@ decode_checkpoint=$dir/final.pt
 # maybe you can try to adjust it if you can not get close results as README.md
 average_num=75
 decode_modes="ctc_greedy_search"
+# Specify decoding_chunk_size if it's a unified dynamic chunk trained model
+# -1 for full chunk
+decoding_chunk_size=64
+num_decoding_left_chunks=128 # left_context_size = right_context_size
 
 # bpemode (unigram or bpe)
 nbpe=1024
@@ -51,7 +55,7 @@ bpemode=bpe
 # To enable upload and set these variables:
 hf_token="hf_xxxxxxxxxxxxxxxxxxxxxxxxx"  # Your Hugging Face token
 hf_repo_id="username/chunkformer-model"   # Your repository ID
-
+onnx=false
 set -e
 set -u
 set -o pipefail
@@ -152,10 +156,6 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
       --src_path $dir  \
       --num ${average_num}
   fi
-  # Specify decoding_chunk_size if it's a unified dynamic chunk trained model
-  # -1 for full chunk
-  decoding_chunk_size=64
-  num_decoding_left_chunks=128
 
   ctc_weight=0.3
   for test in $recog_set; do
@@ -264,6 +264,15 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     echo "Copied $vocab to $tokenizer_dir/"
   else
     echo "Warning: $vocab not found for tokenizer folder."
+  fi
+
+  # Step 6: Export ONNX model if requested
+  if [ ${onnx} == true ]; then
+    echo "Exporting ONNX model using export_onnx.py..."
+    python chunkformer/tools/export_onnx.py "$inference_model_dir" \
+      --chunk_size ${decoding_chunk_size} \
+      --left_context_size ${num_decoding_left_chunks} \
+      --right_context_size ${num_decoding_left_chunks}
   fi
 
   echo "Model setup completed. Directory structure:"
