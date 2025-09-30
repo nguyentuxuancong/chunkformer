@@ -127,8 +127,6 @@ if __name__ == "__main__":
     print("PyTorch inference successful.")
 
     # Compare the results
-    import numpy as np
-
     np.testing.assert_allclose(torch_out.numpy(), ort_outs[0], rtol=1e-05, atol=5e-06)
     assert (torch_mask.numpy() == ort_outs[1]).all(), "Encoder masks do not match!"
     print("The outputs from PyTorch and ONNX Runtime match!")
