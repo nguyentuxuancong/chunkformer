@@ -45,12 +45,12 @@ class RealtimeASR:
         self.offset = 0
         self.total_frames_processed = 0
         self.accumulated_text = ""  # Accumulate text across all chunks
-        
+
         # Transducer predictor caches
         self.pred_cache_m = None
         self.pred_cache_c = None
         self.pred_input = None
-        
+
         self.reset_cache()
 
         # Audio capture - prefer PyAudio on macOS for better stability
@@ -139,7 +139,7 @@ class RealtimeASR:
         self.offset = 0
         self.total_frames_processed = 0
         self.accumulated_text = ""  # Reset accumulated text
-        
+
         # Reset transducer predictor cache if the model has transducer
         if hasattr(self.model.model, "predictor"):
             predictor = self.model.model.predictor
@@ -148,9 +148,7 @@ class RealtimeASR:
             )
             # Initialize with blank token
             blank_id = self.model.model.blank
-            self.pred_input = (
-                torch.tensor([blank_id]).reshape(1, 1).to(self.device)
-            )
+            self.pred_input = torch.tensor([blank_id]).reshape(1, 1).to(self.device)
 
     def extract_features(self, audio_chunk: np.ndarray) -> torch.Tensor:
         """Extract fbank features from audio chunk"""
@@ -220,50 +218,49 @@ class RealtimeASR:
             text = "[Unknown decoder type]"
 
         return text
-    
+
     def decode_transducer_streaming(self, encoder_out: torch.Tensor, n_steps: int = 64) -> list:
         """
         Streaming transducer decoder based on optimized_search.
-        
+
         This function processes encoder output frame by frame and maintains
         predictor state across chunks for streaming inference.
-        
+
         Args:
             encoder_out: Encoder output tensor [B=1, T, E]
             n_steps: Maximum non-blank predictions per frame
-            
+
         Returns:
             List of predicted token IDs (without blanks)
         """
         model = self.model.model
         blank_id = model.blank
-        
-        batch_size = encoder_out.size(0)
+
         max_len = encoder_out.size(1)
-        
+
         # Use persistent predictor cache across chunks
         cache_m = self.pred_cache_m
         cache_c = self.pred_cache_c
         pred_input = self.pred_input
-        
+
         # Output buffer for this chunk
         chunk_hyps = []
-        
+
         # Process each frame
         for t in range(max_len):
             encoder_out_t = encoder_out[:, t : t + 1, :]  # [B=1, 1, E]
-            
+
             # Allow up to n_steps non-blank predictions per frame
             for step in range(1, n_steps + 1):
                 # Forward through predictor
                 pred_out_step, new_cache = model.predictor.forward_step(
                     pred_input, (cache_m, cache_c)
                 )  # [B=1, 1, P]
-                
+
                 # Forward through joint network
                 joint_out_step = model.joint(encoder_out_t, pred_out_step)  # [B=1, 1, V]
                 joint_out_probs = joint_out_step.log_softmax(dim=-1)
-                
+
                 # Get best prediction
                 joint_out_max = joint_out_probs.argmax(dim=-1).squeeze()  # scalar
                 if joint_out_max == blank_id:
@@ -272,15 +269,15 @@ class RealtimeASR:
                 else:
                     # Non-blank prediction
                     chunk_hyps.append(joint_out_max.item())
-                    
+
                     # Update predictor input and cache for next step
                     pred_input = joint_out_max.reshape(1, 1)
                     cache_m, cache_c = new_cache
-                    
+
                     # Check if we've reached max steps per frame
                     if step >= n_steps:
                         break
-        
+
         # Update persistent cache for next chunk
         self.pred_cache_m = cache_m
         self.pred_cache_c = cache_c
